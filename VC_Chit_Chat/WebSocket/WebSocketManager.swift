@@ -20,11 +20,16 @@ class SignalingManager: NSObject, URLSessionWebSocketDelegate, ObservableObject 
     }
 
     func send(dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+        var payload = dict
+        payload["from"] = self.myId // ALWAYS include who sent it
+        
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let jsonString = String(data: data, encoding: .utf8) else { return }
-        webSocketTask?.send(.string(jsonString)) { _ in }
+        
+        webSocketTask?.send(.string(jsonString)) { error in
+            if let error = error { print("Send Error: \(error)") }
+        }
     }
-
     private func receive() {
         webSocketTask?.receive { [weak self] result in
             if case .success(.string(let text)) = result,

@@ -46,6 +46,7 @@ final class WebRTCManager: NSObject, ObservableObject {
         }
     }
 
+    
     func startCall(to peerId: String) {
         prepareConnection(targetId: peerId)
         let constraints = RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true"], optionalConstraints: nil)

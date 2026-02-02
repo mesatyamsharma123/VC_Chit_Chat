@@ -19,8 +19,12 @@ class CallViewModel: ObservableObject {
     func connect() { SignalingManager.shared.connect() }
     
     func startCall() {
+        // If you type "323", this turns it into "User-323" automatically
+        let fullTargetId = targetId.hasPrefix("User-") ? targetId : "User-\(targetId)"
+        
+        print("☎️ Attempting to call: \(fullTargetId)")
         status = "Calling..."
-        WebRTCManager.shared.startCall(to: targetId)
+        WebRTCManager.shared.startCall(to: fullTargetId)
     }
 
     func answerCall() {
@@ -46,6 +50,7 @@ class CallViewModel: ObservableObject {
             self.remoteTrack = nil
         }
     }
+    
 
     private func handleSignal(_ dict: [String: Any]) {
         guard let type = dict["type"] as? String else { return }
