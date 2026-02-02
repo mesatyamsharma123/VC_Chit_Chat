@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import Combine
 
 struct ContentView: View {
     @StateObject var viewModel = CallViewModel()
@@ -8,7 +9,7 @@ struct ContentView: View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
             
-            // 1. Remote Video (Background)
+            // 1. Remote Video (Full Screen Background)
             if let remoteTrack = viewModel.remoteTrack {
                 RTCVideoView(track: remoteTrack)
                     .edgesIgnoringSafeArea(.all)
@@ -18,43 +19,70 @@ struct ContentView: View {
                         .resizable()
                         .frame(width: 100, height: 100)
                         .foregroundColor(.gray)
-                    Text("Waiting for Video...")
+                    Text("Waiting for Connection...")
                         .foregroundColor(.gray)
                 }
             }
             
             VStack {
+                // Top Header: My ID and Local Preview
                 HStack {
-                    Text("My ID: \(SignalingManager.shared.myId)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding()
+                    VStack(alignment: .leading) {
+                        Text("My ID")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.7))
+                        Text(SignalingManager.shared.myId)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.cyan)
+                    }
+                    .padding()
+                    
                     Spacer()
-                    // 2. Local Video (Thumbnail)
+                    
+                    // Local Video Thumbnail
                     RTCVideoView(track: viewModel.localTrack)
-                        .frame(width: 120, height: 180)
+                        .frame(width: 100, height: 140)
                         .background(Color.black)
-                        .cornerRadius(15)
-                        .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white, lineWidth: 1))
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.3), lineWidth: 1))
                         .padding()
                 }
                 
+                // Connection Input (Only show when not in a call)
+                if viewModel.status == "Server Connected" || viewModel.status == "Disconnected" {
+                    VStack(spacing: 15) {
+                        TextField("Enter Friend's ID", text: $viewModel.targetId)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding()
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(10)
+                            .foregroundColor(.white)
+                            .accentColor(.blue)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                            .frame(maxWidth: 250)
+                    }
+                    .padding()
+                }
+
+                // Status Indicator
                 Text(viewModel.status)
-                    .font(.headline)
+                    .font(.subheadline)
                     .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.black.opacity(0.6)))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.blue.opacity(0.3)))
                 
                 Spacer()
                 
-                // 3. Control Buttons
+                // 3. Control Buttons Logic
                 HStack(spacing: 40) {
-                    if viewModel.status == "Disconnected" {
+                    if !SignalingManager.shared.isConnected {
                         Button(action: { viewModel.connect() }) {
-                            CircularButton(icon: "antenna.radiowaves.left.and.right", color: .blue, text: "Connect")
+                            CircularButton(icon: "antenna.radiowaves.left.and.right", color: .blue, text: "Go Online")
                         }
                     } else if viewModel.hasIncomingCall {
+                        // Answer/Decline View
                         Button(action: { viewModel.answerCall() }) {
                             CircularButton(icon: "phone.fill", color: .green, text: "Answer")
                         }
@@ -62,11 +90,12 @@ struct ContentView: View {
                             CircularButton(icon: "phone.down.fill", color: .red, text: "Decline")
                         }
                     } else if viewModel.status == "Server Connected" {
-                        // In a real app, you'd type the other person's ID here
+                        // Ready to call
                         Button(action: { viewModel.startCall() }) {
-                            CircularButton(icon: "phone.fill", color: .green, text: "Call Test")
+                            CircularButton(icon: "video.fill", color: .green, text: "Call")
                         }
                     } else {
+                        // Active Call - Show End Button
                         Button(action: { viewModel.endCall() }) {
                             CircularButton(icon: "phone.down.fill", color: .red, text: "End")
                         }
@@ -109,3 +138,4 @@ struct CircularButton: View {
         }
     }
 }
+
