@@ -1,6 +1,8 @@
 import Foundation
 import WebRTC
 import Combine
+
+
 class SignalingManager: NSObject, URLSessionWebSocketDelegate, ObservableObject {
     static let shared = SignalingManager()
     @Published var isConnected = false
@@ -8,13 +10,19 @@ class SignalingManager: NSObject, URLSessionWebSocketDelegate, ObservableObject 
     var onMessageReceived: (([String: Any]) -> Void)?
     
     private var webSocketTask: URLSessionWebSocketTask?
-    private let url = URL(string: "wss://3348852f19a4.ngrok-free.app")! // CHANGE THIS
+    private let url = URL(string: "wss://9d9b977e20c4.ngrok-free.app")!
 
     func connect() {
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
         webSocketTask = session.webSocketTask(with: url)
         webSocketTask?.resume()
         receive()
+    }
+
+    func send(dict: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let jsonString = String(data: data, encoding: .utf8) else { return }
+        webSocketTask?.send(.string(jsonString)) { _ in }
     }
 
     private func receive() {
@@ -26,12 +34,6 @@ class SignalingManager: NSObject, URLSessionWebSocketDelegate, ObservableObject 
                 self?.receive()
             }
         }
-    }
-
-    func send(dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
-              let jsonString = String(data: data, encoding: .utf8) else { return }
-        webSocketTask?.send(.string(jsonString)) { _ in }
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {

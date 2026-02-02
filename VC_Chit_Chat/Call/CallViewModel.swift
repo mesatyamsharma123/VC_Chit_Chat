@@ -8,15 +8,12 @@ class CallViewModel: ObservableObject {
     @Published var localTrack: RTCVideoTrack?
     @Published var remoteTrack: RTCVideoTrack?
     @Published var hasIncomingCall = false
-    private var callerId: String?
+    private var activeRemoteId: String?
 
     init() {
         WebRTCManager.shared.$localVideoTrack.assign(to: &$localTrack)
         WebRTCManager.shared.$remoteVideoTrack.assign(to: &$remoteTrack)
-        
-        SignalingManager.shared.onMessageReceived = { [weak self] dict in
-            self?.handleSignal(dict)
-        }
+        SignalingManager.shared.onMessageReceived = { [weak self] dict in self?.handleSignal(dict) }
     }
 
     func connect() { SignalingManager.shared.connect() }
@@ -27,8 +24,10 @@ class CallViewModel: ObservableObject {
     }
 
     func answerCall() {
-        guard let id = callerId else { return }
-        WebRTCManager.shared.peerConnection?.answer(for: RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true"], optionalConstraints: nil)) { sdp, _ in
+        guard let id = activeRemoteId else { return }
+        let constraints = RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true"], optionalConstraints: nil)
+        
+        WebRTCManager.shared.peerConnection?.answer(for: constraints) { sdp, _ in
             guard let sdp = sdp else { return }
             WebRTCManager.shared.peerConnection?.setLocalDescription(sdp) { _ in
                 SignalingManager.shared.send(dict: ["type": "answer", "sdp": sdp.sdp, "target": id, "from": SignalingManager.shared.myId])
@@ -36,38 +35,40 @@ class CallViewModel: ObservableObject {
             }
         }
     }
+
     func endCall() {
-            // 1. Tell the server we are hanging up
-            SignalingManager.shared.send(dict: ["type": "hangup", "target": targetId])
-            
-            // 2. Close the WebRTC connection
-            WebRTCManager.shared.peerConnection?.close()
-            WebRTCManager.shared.peerConnection = nil
-            WebRTCManager.shared.remoteVideoTrack = nil
-            
-            // 3. Update the UI status
-            DispatchQueue.main.async {
-                self.status = "Server Connected"
-                self.hasIncomingCall = false
-                self.remoteTrack = nil
-            }
+        SignalingManager.shared.send(dict: ["type": "hangup", "target": targetId, "from": SignalingManager.shared.myId])
+        WebRTCManager.shared.peerConnection?.close()
+        WebRTCManager.shared.peerConnection = nil
+        DispatchQueue.main.async {
+            self.status = "Server Connected"
+            self.hasIncomingCall = false
+            self.remoteTrack = nil
         }
+    }
 
     private func handleSignal(_ dict: [String: Any]) {
-        let type = dict["type"] as? String
-        if type == "offer" {
-            callerId = dict["from"] as? String
-            WebRTCManager.shared.prepareConnection(targetId: callerId!)
+        guard let type = dict["type"] as? String else { return }
+        
+        switch type {
+        case "offer":
+            activeRemoteId = dict["from"] as? String
+            WebRTCManager.shared.prepareConnection(targetId: activeRemoteId!)
             let sdp = RTCSessionDescription(type: .offer, sdp: dict["sdp"] as! String)
             WebRTCManager.shared.peerConnection?.setRemoteDescription(sdp) { _ in
                 DispatchQueue.main.async { self.hasIncomingCall = true; self.status = "Incoming..." }
             }
-        } else if type == "answer" {
+        case "answer":
             let sdp = RTCSessionDescription(type: .answer, sdp: dict["sdp"] as! String)
-            WebRTCManager.shared.peerConnection?.setRemoteDescription(sdp) { _ in }
-        } else if type == "candidate" {
+            WebRTCManager.shared.peerConnection?.setRemoteDescription(sdp) { _ in
+                DispatchQueue.main.async { self.status = "Connected" }
+            }
+        case "candidate":
             let candidate = RTCIceCandidate(sdp: dict["candidate"] as! String, sdpMLineIndex: dict["sdpMLineIndex"] as! Int32, sdpMid: dict["sdpMid"] as? String)
             WebRTCManager.shared.peerConnection?.add(candidate)
+        case "hangup":
+            self.endCall()
+        default: break
         }
     }
 }
