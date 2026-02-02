@@ -19,17 +19,16 @@ class CallViewModel: ObservableObject {
     func connect() { SignalingManager.shared.connect() }
     
     func startCall() {
-        // If you type "323", this turns it into "User-323" automatically
-        let fullTargetId = targetId.hasPrefix("User-") ? targetId : "User-\(targetId)"
-        
-        print("☎️ Attempting to call: \(fullTargetId)")
+        // Fix: Auto-prepend "User-" if not present
+        let fullId = targetId.hasPrefix("User-") ? targetId : "User-\(targetId)"
         status = "Calling..."
-        WebRTCManager.shared.startCall(to: fullTargetId)
+        WebRTCManager.shared.startCall(to: fullId)
     }
 
     func answerCall() {
         guard let id = activeRemoteId else { return }
-        let constraints = RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true"], optionalConstraints: nil)
+        // Fix: Added Audio to constraints
+        let constraints = RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true", "OfferToReceiveAudio": "true"], optionalConstraints: nil)
         
         WebRTCManager.shared.peerConnection?.answer(for: constraints) { sdp, _ in
             guard let sdp = sdp else { return }
@@ -41,7 +40,6 @@ class CallViewModel: ObservableObject {
     }
 
     func endCall() {
-        SignalingManager.shared.send(dict: ["type": "hangup", "target": targetId, "from": SignalingManager.shared.myId])
         WebRTCManager.shared.peerConnection?.close()
         WebRTCManager.shared.peerConnection = nil
         DispatchQueue.main.async {
@@ -50,11 +48,9 @@ class CallViewModel: ObservableObject {
             self.remoteTrack = nil
         }
     }
-    
 
     private func handleSignal(_ dict: [String: Any]) {
         guard let type = dict["type"] as? String else { return }
-        
         switch type {
         case "offer":
             activeRemoteId = dict["from"] as? String
@@ -71,8 +67,7 @@ class CallViewModel: ObservableObject {
         case "candidate":
             let candidate = RTCIceCandidate(sdp: dict["candidate"] as! String, sdpMLineIndex: dict["sdpMLineIndex"] as! Int32, sdpMid: dict["sdpMid"] as? String)
             WebRTCManager.shared.peerConnection?.add(candidate)
-        case "hangup":
-            self.endCall()
+        case "hangup": self.endCall()
         default: break
         }
     }

@@ -1,7 +1,6 @@
 import Foundation
 import WebRTC
 import Combine
-
 final class WebRTCManager: NSObject, ObservableObject {
     static let shared = WebRTCManager()
     @Published var localVideoTrack: RTCVideoTrack?
@@ -10,7 +9,8 @@ final class WebRTCManager: NSObject, ObservableObject {
     private let factory: RTCPeerConnectionFactory
     var peerConnection: RTCPeerConnection?
     private var videoCapturer: RTCCameraVideoCapturer?
-    var remotePeerId: String? // Changed to public so ViewModel can set it
+    private var localAudioTrack: RTCAudioTrack? // New
+    var remotePeerId: String?
 
     private override init() {
         RTCInitializeSSL()
@@ -22,9 +22,14 @@ final class WebRTCManager: NSObject, ObservableObject {
     }
 
     private func setupLocalMedia() {
-        let source = factory.videoSource()
-        videoCapturer = RTCCameraVideoCapturer(delegate: source)
-        localVideoTrack = factory.videoTrack(with: source, trackId: "video0")
+        // Video Setup
+        let videoSource = factory.videoSource()
+        videoCapturer = RTCCameraVideoCapturer(delegate: videoSource)
+        localVideoTrack = factory.videoTrack(with: videoSource, trackId: "video0")
+        
+        // Audio Setup (The Audio Fix)
+        let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
+        localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
         
         guard let device = RTCCameraVideoCapturer.captureDevices().first(where: { $0.position == .front }),
               let format = RTCCameraVideoCapturer.supportedFormats(for: device).last,
@@ -33,23 +38,37 @@ final class WebRTCManager: NSObject, ObservableObject {
         videoCapturer?.startCapture(with: device, format: format, fps: Int(fps))
     }
 
+    // Audio routing fix for iOS
+    private func configureAudioSession() {
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        do {
+            try session.setCategory(AVAudioSession.Category.playAndRecord.rawValue, with: [.allowBluetooth, .defaultToSpeaker])
+            try session.setMode(AVAudioSession.Mode.voiceChat.rawValue)
+            try session.setActive(true)
+        } catch { print("❌ Audio Session Error: \(error)") }
+        session.unlockForConfiguration()
+    }
+
     func prepareConnection(targetId: String) {
         self.remotePeerId = targetId
+        configureAudioSession() // Activate speakers/mic
+        
         let config = RTCConfiguration()
         config.iceServers = [RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"])]
         
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        peerConnection = factory.peerConnection(with: config, constraints: constraints, delegate: self)
+        peerConnection = factory.peerConnection(with: config, constraints: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil), delegate: self)
         
-        if let local = localVideoTrack {
-            peerConnection?.add(local, streamIds: ["stream0"])
-        }
+        let streamId = "stream0"
+        // Add both tracks
+        if let vt = localVideoTrack { peerConnection?.add(vt, streamIds: [streamId]) }
+        if let at = localAudioTrack { peerConnection?.add(at, streamIds: [streamId]) }
     }
 
-    
     func startCall(to peerId: String) {
         prepareConnection(targetId: peerId)
-        let constraints = RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true"], optionalConstraints: nil)
+        // Request both audio and video in SDP
+        let constraints = RTCMediaConstraints(mandatoryConstraints: ["OfferToReceiveVideo": "true", "OfferToReceiveAudio": "true"], optionalConstraints: nil)
         
         peerConnection?.offer(for: constraints) { sdp, _ in
             guard let sdp = sdp else { return }
